@@ -5,7 +5,7 @@ import { ChoosrStack } from "../lib/choosr-stack";
 
 const app = new cdk.App();
 
-new ChoosrStack(app, "ChoosrStack", {
+new ChoosrStack(app, "ChoosrDev", {
   env: {
     account: process.env.CDK_DEFAULT_ACCOUNT,
     region: process.env.CDK_DEFAULT_REGION,
