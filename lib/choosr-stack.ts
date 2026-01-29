@@ -2,6 +2,9 @@ import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as apigwv2 from "aws-cdk-lib/aws-apigatewayv2";
+import * as integrations from "aws-cdk-lib/aws-apigatewayv2-integrations";
 
 export class ChoosrStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
@@ -44,7 +47,7 @@ export class ChoosrStack extends cdk.Stack {
           userSrp: true,
           userPassword: true,
         },
-      }
+      },
     );
 
     /**
@@ -71,6 +74,60 @@ export class ChoosrStack extends cdk.Stack {
       sortKey: { name: "GSI2SK", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
+
+    // ---- Lambda: HTTP API (Go) ----
+    const httpApiFn = new lambda.Function(this, "ChoosrHttpApiFn", {
+      functionName: `${prefix}-httpapi`,
+      runtime: lambda.Runtime.PROVIDED_AL2023,
+      handler: "bootstrap",
+      code: lambda.Code.fromAsset("../choosr-backend", {
+        bundling: {
+          image: lambda.Runtime.PROVIDED_AL2023.bundlingImage,
+          command: [
+            "bash",
+            "-lc",
+            [
+              "set -e",
+              "cd cmd/httpapi",
+              "GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /asset-output/bootstrap",
+            ].join(" && "),
+          ],
+        },
+      }),
+      architecture: lambda.Architecture.ARM_64,
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(10),
+      environment: {
+        ENV: envName,
+        DDB_TABLE: table.tableName,
+      },
+    });
+
+    table.grantReadWriteData(httpApiFn);
+
+    // ---- HTTP API Gateway ----
+    const httpApi = new apigwv2.HttpApi(this, "ChoosrHttpApi", {
+      apiName: `${prefix}-http-api`,
+    });
+
+    const httpIntegration = new integrations.HttpLambdaIntegration(
+      "ChoosrHttpIntegration",
+      httpApiFn,
+    );
+
+    httpApi.addRoutes({
+      path: "/health",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: httpIntegration,
+    });
+
+    httpApi.addRoutes({
+      path: "/v1/decisions",
+      methods: [apigwv2.HttpMethod.POST],
+      integration: httpIntegration,
+    });
+
+    new cdk.CfnOutput(this, "HttpApiUrl", { value: httpApi.url! });
 
     /**
      * Outputs (we will paste these into backend + mobile config)
