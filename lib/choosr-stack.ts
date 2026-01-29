@@ -1,5 +1,6 @@
 import * as cdk from "aws-cdk-lib";
 import { Construct } from "constructs";
+import * as path from "path";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as lambda from "aws-cdk-lib/aws-lambda";
@@ -76,27 +77,40 @@ export class ChoosrStack extends cdk.Stack {
     });
 
     // ---- Lambda: HTTP API (Go) ----
+    // Use an absolute path so bundling is stable regardless of where CDK is run from.
+    const backendPath = path.resolve(__dirname, "../../choosr-backend");
+
     const httpApiFn = new lambda.Function(this, "ChoosrHttpApiFn", {
       functionName: `${prefix}-httpapi`,
       runtime: lambda.Runtime.PROVIDED_AL2023,
       handler: "bootstrap",
-      code: lambda.Code.fromAsset("../choosr-backend", {
+      architecture: lambda.Architecture.ARM_64,
+      memorySize: 256,
+      timeout: cdk.Duration.seconds(10),
+      code: lambda.Code.fromAsset(backendPath, {
         bundling: {
           image: lambda.Runtime.PROVIDED_AL2023.bundlingImage,
+
+          // ✅ Key fix: avoid UID mapping + permission problems
+          user: "root",
+
           command: [
             "bash",
             "-lc",
             [
-              "set -e",
+              "set -euo pipefail",
               "cd cmd/httpapi",
+              // ✅ keep all Go caches in writable space
+              "export HOME=/tmp",
+              "export TMPDIR=/tmp",
+              "export GOCACHE=/tmp/go-build",
+              "export GOMODCACHE=/tmp/gomod",
+              "export GOPATH=/tmp/go",
               "GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o /asset-output/bootstrap",
             ].join(" && "),
           ],
         },
       }),
-      architecture: lambda.Architecture.ARM_64,
-      memorySize: 256,
-      timeout: cdk.Duration.seconds(10),
       environment: {
         ENV: envName,
         DDB_TABLE: table.tableName,
