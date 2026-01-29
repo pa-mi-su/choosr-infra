@@ -1,0 +1,13 @@
+# Node / CDK
+node_modules/
+cdk.out/
+
+# Logs
+*.log
+
+# Env
+.env
+.env.*
+
+# OS
+.DS_Store
