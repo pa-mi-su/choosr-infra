@@ -141,6 +141,12 @@ export class ChoosrStack extends cdk.Stack {
       integration: httpIntegration,
     });
 
+    httpApi.addRoutes({
+      path: "/v1/decisions/{id}",
+      methods: [apigwv2.HttpMethod.GET],
+      integration: httpIntegration,
+    });
+
     new cdk.CfnOutput(this, "HttpApiUrl", { value: httpApi.url! });
 
     /**
